@@ -1,5 +1,7 @@
 import datetime
 import re
+import pytz
+import pandas as pd
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import List
@@ -434,9 +436,13 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("csv_filename")
     parser.add_argument("username_or_url", nargs="+")
+    group = parser.add_mutually_exclusive_group(required=False)
+    group.add_argument("--before", required=False, help="before time range, use format as pd.Timedelta and UTC timezone e.g 1d,1h,1s")
+    group.add_argument("--until", required=False, help="parse until datetime, use format as pd.Timestamp and UTC timezone e.g '2024-05-19' or '2024-05-19 07:30:30'")
     args = parser.parse_args()
-    # TODO: add option to limit messages (--max=N, --until=datetime, --after=datetime etc.)
     # TODO: implement `urls_format`: postgres_array, json, multiline
+    before_time_range = pd.Timedelta(args.before).to_pytimedelta() if args.before else None
+    until_time = pd.Timestamp(args.until).to_pydatetime() if args.until else None
     usernames_or_urls = args.username_or_url
     filename = Path(args.csv_filename)
     if not filename.parent.exists():
@@ -450,18 +456,47 @@ def main():
             username = normalize_url(username_or_url).replace(
                 "https://t.me/s/", ""
             )
+            if before_time_range:
+                before_time = (datetime.datetime.utcnow()-before_time_range).replace(tzinfo=pytz.UTC)
+            if until_time:
+                until_time = until_time.replace(tzinfo=pytz.UTC)
             progress.desc = f"Scraping {username}"
             try:
                 for message in scraper.messages(username):
-                    message = asdict(message)
-                    message["urls"] = json.dumps(message["urls"])
-                    if writer is None:
-                        writer = csv.DictWriter(
-                            fobj, fieldnames=list(message.keys())
-                        )
-                        writer.writeheader()
-                    writer.writerow(message)
-                    progress.update()
+                    if before_time_range and message.created_at.replace(tzinfo=pytz.UTC) > before_time:
+                        message = asdict(message)
+                        message["urls"] = json.dumps(message["urls"])
+                        if writer is None:
+                            writer = csv.DictWriter(
+                                fobj, fieldnames=list(message.keys())
+                            )
+                            writer.writeheader()
+                        writer.writerow(message)
+                        progress.update()
+                    elif before_time_range == None and until_time == None: # parse all post
+                        message = asdict(message)
+                        message["urls"] = json.dumps(message["urls"])
+                        if writer is None:
+                            writer = csv.DictWriter(
+                                fobj, fieldnames=list(message.keys())
+                            )
+                            writer.writeheader()
+                        writer.writerow(message)
+                        progress.update()
+
+                    elif before_time_range and until_time == None:
+                        break
+                    else:
+                        if message.created_at.replace(tzinfo=pytz.UTC) <= until_time:
+                            message = asdict(message)
+                            message["urls"] = json.dumps(message["urls"])
+                            if writer is None:
+                                writer = csv.DictWriter(
+                                    fobj, fieldnames=list(message.keys())
+                                )
+                                writer.writeheader()
+                            writer.writerow(message)
+                            progress.update()
 
             except StopIteration:  # Group, bot or invalid username
                 logger.error(

@@ -34,10 +34,19 @@ for message in scraper.messages("tchantest"):
 
 ## Using as a command-line tool
 
-Scrape one or many channels and save all messages to `messages.csv`:
+Scrape one or many channels and save messages to `messages.csv`:
 
+save all message
 ```shell
 tchan messages.csv channel1 [channel2 ... channelN]
+```
+save all message before 1 day
+```shell
+tchan messages.csv --before '1d' channel1 [channel2 ... channelN]
+```
+save all message until 2023-02-24 07:30
+```shell
+tchan messages.csv --until "2023-02-24 07:30" channel1 [channel2 ... channelN]
 ```
 
 ## Tests
